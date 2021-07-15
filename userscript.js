@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name Pixiv Media Downloader
-// @version 0.1
+// @version 0.1.1
 // @icon https://pixiv.net/favicon.ico
 // @include https://www.pixiv.net/*
 // @run-at document-idle
@@ -103,21 +103,24 @@ function fetchImages(url_base, filename_base, illustration_count) {
   return images
 }
 
-(async function scriptInit() {
-  history.pushState = (function (_super) {
-    return function () {
-      const funcResult = _super.apply(this, arguments)
+history.pushState = (function (_super) {
+  return function () {
+    const funcResult = _super.apply(this, arguments)
+    if (window.location.href.match(ARTWORK_URL))
       scriptInit()
-      return funcResult
-    }
-  })(history.pushState)
+    return funcResult
+  }
+})(history.pushState);
 
+(async function scriptInit() {
   if (!window.location.href.match(ARTWORK_URL))
     return;
 
-  const gif_script = document.createElement("script")
-  gif_script.src = "https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.js"
-  document.head.appendChild(gif_script)
+  if (typeof GIF === "undefined") {
+    const gif_script = document.createElement("script")
+    gif_script.src = "https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.js"
+    document.head.appendChild(gif_script)
+  }
 
   const image_id = document.URL.split("/").pop()
 
@@ -137,25 +140,29 @@ function fetchImages(url_base, filename_base, illustration_count) {
   if (illust_data.illustType == 0 || illust_data.illustType == 1) /* Picture & Manga */ {
     const url = illust_data.urls.original
     const images = fetchImages(url, filename, illust_data.pageCount)
+    // NOTE: Images shouldnt be fetched instantly
+    // NOTE: Since request for image is asynchronous we may not have a full set
+    // of images when user presses the button, it eaither should be awaited till
+    // all of them are loaded or the functions should be aware of such case
 
     if (illust_data.pageCount == 1) /* Single image mode */ {
-      button_section.appendChild(createButton("Save Original", function () {
+      button_section.appendChild(createButton("Download original", function () {
         saveFile(images[0].filename, images[0].data)
       }))
       return;
     }
 
-    button_section.appendChild(createButton("Download each image separately", function () {
+    button_section.appendChild(createButton("Download separately", function () {
       images.forEach(image => { saveFile(image.filename, image.data) })
     }))
 
-    button_section.appendChild(createButton("Download as zip", function () {
+    button_section.appendChild(createButton("Download zip", function () {
       const zip = new JSZip()
       images.forEach(image => zip.file(image.filename, image.data, { binary: true }))
       zip.generateAsync({ type: "blob" }).then(content => saveFile(filename + ".zip", content))
     }))
 
-    button_section.appendChild(createButton("Save as cntinuous image", async function () {
+    button_section.appendChild(createButton("Download continuous", async function () {
       const canvas = document.createElement("canvas")
       const context = canvas.getContext("2d")
       const fetched_images = []
@@ -194,7 +201,7 @@ function fetchImages(url_base, filename_base, illustration_count) {
     const ugoira_meta_response = await fetch("https://www.pixiv.net/ajax/illust/" + image_id + "/ugoira_meta")
     const ugoira_meta_data = (await ugoira_meta_response.json()).body
 
-    button_section.appendChild(createButton("Save as GIF", async function () {
+    button_section.appendChild(createButton("Download GIF", async function () {
       const zip_file_response = await fetch(ugoira_meta_data.originalSrc)
       const zip_blob = await zip_file_response.blob()
 
