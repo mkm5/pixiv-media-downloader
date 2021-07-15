@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name Pixiv Media Downloader
-// @version 0.1.1
+// @version 0.2
 // @icon https://pixiv.net/favicon.ico
 // @include https://www.pixiv.net/*
 // @run-at document-idle
@@ -62,45 +62,45 @@ function saveFile(filename, data) {
   link.remove()
 }
 
-function requestImage(url, callback) {
-  GM_xmlhttpRequest({
-    method: "GET",
-    url: url,
-    responseType: "blob",
-    headers: { "Referer": "https://www.pixiv.net/" },
-    onload: callback
+async function requestImage(url) {
+  return new Promise(resolve => {
+    GM_xmlhttpRequest({
+      method: "GET",
+      url: url,
+      responseType: "blob",
+      headers: { "Referer": "https://www.pixiv.net/" },
+      onload: (req) => {
+        console.log(`[${req.statusText}:${req.status}] ${req.finalUrl}`)
+        if (req.status == 200) {
+          resolve(req.response)
+        }
+      }
+    })
   })
 }
 
-function loadImage(src, callback) {
+async function loadImage(src, callback) {
   return new Promise(resolve => {
     const img = new Image()
-    img.onload = _ => callback(img, resolve)
+    img.onload = () => resolve(img)
     img.src = src
   })
 }
 
-function fetchImages(url_base, filename_base, illustration_count) {
-  let url = url_base
+async function fetchImages(url_base, illustration_count) {
   const is_multi_image = illustration_count > 1
-  const images = []
-
-  for (let i = 0; i < illustration_count; i++) {
-    if (is_multi_image) {
-      url = url.replace(/_p\d+/, `_p${i}`)
+  const images = {}
+  return new Promise(fetch_resolve => {
+    const promises = []
+    for (let i = 0; i < illustration_count; i++) {
+      const url = url_base.replace(/_p\d+/, `_p${i}`)
+      promises.push(requestImage(url).then(data => { images[i] = data }))
     }
 
-    requestImage(url, req => {
-      console.log(`[${req.statusText}:${req.status}] ${req.finalUrl}`)
-      if (req.status == 200) {
-        const extension = url.split(".").pop()
-        const filename = filename_base + (is_multi_image ? `.p${i}` : '') + "." + extension
-        images.push({ filename: filename, data: req.response })
-      }
+    Promise.allSettled(promises).then(() => {
+      fetch_resolve(images)
     })
-
-  }
-  return images
+  })
 }
 
 history.pushState = (function (_super) {
@@ -132,72 +132,76 @@ history.pushState = (function (_super) {
 
   const button_section = await waitFor(mutation => {
     let sections = document.querySelectorAll("section")
-    if (sections.length >= 2 && sections[1].childElementCount >= 3 /* NOTE: 3 for guests, 4 for logged users */) {
+    if (sections.length >= 2 && sections[1].childElementCount >= 3 /* NOTE: 3 for guests, 4 for logged users */ ) {
       return sections[1]
     }
   })
 
   if (illust_data.illustType == 0 || illust_data.illustType == 1) /* Picture & Manga */ {
     const url = illust_data.urls.original
-    const images = fetchImages(url, filename, illust_data.pageCount)
-    // NOTE: Images shouldnt be fetched instantly
-    // NOTE: Since request for image is asynchronous we may not have a full set
-    // of images when user presses the button, it eaither should be awaited till
-    // all of them are loaded or the functions should be aware of such case
+    const extension = url.split(".").pop()
 
     if (illust_data.pageCount == 1) /* Single image mode */ {
-      button_section.appendChild(createButton("Download original", function () {
-        saveFile(images[0].filename, images[0].data)
+      button_section.appendChild(createButton("Download original", async function () {
+        requestImage(url).then(data => saveFile(filename + extension, data))
       }))
       return;
     }
 
-    button_section.appendChild(createButton("Download separately", function () {
-      images.forEach(image => { saveFile(image.filename, image.data) })
+    button_section.appendChild(createButton("Download separately", async function () {
+      const images = await fetchImages(url, illust_data.pageCount)
+      Object.entries(images).forEach(([idx, data]) => {
+        saveFile(filename + `.p${idx}` + "." + extension, data)
+      })
     }))
 
-    button_section.appendChild(createButton("Download zip", function () {
+    button_section.appendChild(createButton("Download zip", async function () {
+      const images = await fetchImages(url, illust_data.pageCount)
       const zip = new JSZip()
-      images.forEach(image => zip.file(image.filename, image.data, { binary: true }))
+      for (const [idx, data] of Object.entries(images)) {
+        zip.file(filename + `.p${idx}` + "." + extension, data, { binary: true })
+      }
       zip.generateAsync({ type: "blob" }).then(content => saveFile(filename + ".zip", content))
     }))
 
     button_section.appendChild(createButton("Download continuous", async function () {
+      const images = await fetchImages(url, illust_data.pageCount)
+
       const canvas = document.createElement("canvas")
       const context = canvas.getContext("2d")
-      const fetched_images = []
 
       canvas.width = 0
       canvas.height = 0
 
-      await Promise.all(
-        images.map((image, idx) => {
-          const url = URL.createObjectURL(image.data)
+      const fetched_images = await Promise.all(
+        Object.entries(images).map(([idx, data]) => {
+          const object_url = URL.createObjectURL(data)
 
-          return loadImage(url, (img, resolve) => {
-            if (canvas.width < img.width) {
-              canvas.width = img.width
-            }
-            canvas.height += img.height
-            fetched_images.push(img)
+          return new Promise(resolve => {
+            loadImage(object_url).then(image => {
+              if (canvas.width < image.width)
+                canvas.width = image.width
+              canvas.height += image.height
 
-            URL.revokeObjectURL(url)
-            resolve(this)
+              resolve(image)
+              URL.revokeObjectURL(object_url)
+            })
           })
         })
       )
 
       let current_position = 0;
-      fetched_images.forEach(image => {
+      for (const image of fetched_images) {
         context.drawImage(image, Math.round((canvas.width - image.width) / 2), current_position)
         current_position += image.height
-      })
+      }
 
-      const extension = url.split(".").pop()
-      canvas.toBlob(blob => saveFile(filename + "." + extension, blob), images[0].data.type)
+      canvas.toBlob(blob => {
+        saveFile(filename + "." + extension, blob)
+      })
     }))
   }
-  else if (illust_data.illustType == 2) /* Ugoira */{
+  else if (illust_data.illustType == 2) /* Ugoira */ {
     const ugoira_meta_response = await fetch("https://www.pixiv.net/ajax/illust/" + image_id + "/ugoira_meta")
     const ugoira_meta_data = (await ugoira_meta_response.json()).body
 
@@ -206,26 +210,23 @@ history.pushState = (function (_super) {
       const zip_blob = await zip_file_response.blob()
 
       new JSZip().loadAsync(zip_blob)
-      .then(async zip => {
-        const gif = new GIF({ workers: 4, quality: 10, workerScript: GIF_worker_URL })
-        gif.on("finished", blob => {
-          saveFile(filename + ".gif", blob)
-        })
-
-        await Promise.all(
-          ugoira_meta_data.frames.map(async frame => {
-            const data = await zip.file(frame.file).async("blob")
-            const url = URL.createObjectURL(data)
-            return loadImage(url, (img, resolve) => {
-              gif.addFrame(img, { delay: frame.delay })
-              URL.revokeObjectURL(url)
-              resolve(this)
-            })
+        .then(async zip => {
+          const gif = new GIF({ workers: 4, quality: 10, workerScript: GIF_worker_URL })
+          gif.on("finished", blob => {
+            saveFile(filename + ".gif", blob)
           })
-        )
 
-        gif.render()
-      })
+          await Promise.allSettled(
+            ugoira_meta_data.frames.map(async frame => {
+              const data = await zip.file(frame.file).async("blob")
+              const url = URL.createObjectURL(data)
+              const image = await loadImage(url)
+              gif.addFrame(image, { delay: frame.delay })
+              URL.revokeObjectURL(url)
+            })
+          )
+          gif.render()
+        })
     }))
   }
 })()
