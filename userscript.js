@@ -107,7 +107,7 @@ function fetchImages(url_base, filename_base, illustration_count) {
   history.pushState = (function (_super) {
     return function () {
       const funcResult = _super.apply(this, arguments)
-      scriptInit() // Defer it
+      scriptInit()
       return funcResult
     }
   })(history.pushState)
@@ -128,15 +128,12 @@ function fetchImages(url_base, filename_base, illustration_count) {
   const filename = illust_data.illustTitle + "-" + image_id + "-" + illust_data.userAccount + "-" + illust_data.createDate.replace(":", "_")
 
   const button_section = await waitFor(mutation => {
-    // TODO: Find a better way to detect it
     let sections = document.querySelectorAll("section")
-    if (sections.length >= 2 && sections[1].childElementCount >= 3) { // NOTE: Its 3 for guests and 4 for logged users
+    if (sections.length >= 2 && sections[1].childElementCount >= 3 /* NOTE: 3 for guests, 4 for logged users */) {
       return sections[1]
     }
   })
 
-  // NOTE(Picture, Manga): It needs to be awaited till all images are loaded in zip download mode
-  // TODO(Picture, Manga): Add possibility to exclude images to download (Checkbox next to image?)
   if (illust_data.illustType == 0 || illust_data.illustType == 1) /* Picture & Manga */ {
     const url = illust_data.urls.original
     const images = fetchImages(url, filename, illust_data.pageCount)
@@ -148,7 +145,6 @@ function fetchImages(url_base, filename_base, illustration_count) {
       return;
     }
 
-    // TODO: Add progress indicator for each "multi image download" button
     button_section.appendChild(createButton("Download each image separately", function () {
       images.forEach(image => { saveFile(image.filename, image.data) })
     }))
@@ -156,10 +152,7 @@ function fetchImages(url_base, filename_base, illustration_count) {
     button_section.appendChild(createButton("Download as zip", function () {
       const zip = new JSZip()
       images.forEach(image => zip.file(image.filename, image.data, { binary: true }))
-      zip.generateAsync({ type: "blob" }).then(content => {
-        console.log("ZIP", content)
-        saveFile(filename + ".zip", content)
-      })
+      zip.generateAsync({ type: "blob" }).then(content => saveFile(filename + ".zip", content))
     }))
 
     button_section.appendChild(createButton("Save as cntinuous image", async function () {
@@ -207,8 +200,6 @@ function fetchImages(url_base, filename_base, illustration_count) {
 
       new JSZip().loadAsync(zip_blob)
       .then(async zip => {
-        // TODO: Choose the best dithering method
-        // TODO: Add option to customize GIF processing (workers, quality, dithering method)
         const gif = new GIF({ workers: 4, quality: 10, workerScript: GIF_worker_URL })
         gif.on("finished", blob => {
           saveFile(filename + ".gif", blob)
