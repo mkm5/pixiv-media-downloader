@@ -1,1 +1,1 @@
-# pixiv-media-downloader
+# Pixiv Media Downloader
