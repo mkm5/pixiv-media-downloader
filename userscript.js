@@ -1,8 +1,10 @@
 // ==UserScript==
 // @name Pixiv Media Downloader
-// @version 0.2
+// @version 0.2.1
 // @icon https://pixiv.net/favicon.ico
-// @include https://www.pixiv.net/*
+// @downloadURL https://raw.githubusercontent.com/mkm5/pixiv-media-downloader/master/userscript.js
+// @homepageURL https://github.com/mkm5/pixiv-media-downloader
+// @match https://www.pixiv.net/*
 // @run-at document-idle
 // @noframes
 // @require https://cdnjs.cloudflare.com/ajax/libs/jszip/3.6.0/jszip.min.js
@@ -79,7 +81,7 @@ async function requestImage(url) {
   })
 }
 
-async function loadImage(src, callback) {
+async function loadImage(src) {
   return new Promise(resolve => {
     const img = new Image()
     img.onload = () => resolve(img)
@@ -88,7 +90,6 @@ async function loadImage(src, callback) {
 }
 
 async function fetchImages(url_base, illustration_count) {
-  const is_multi_image = illustration_count > 1
   const images = {}
   return new Promise(fetch_resolve => {
     const promises = []
@@ -126,11 +127,11 @@ history.pushState = (function (_super) {
 
   const illust_data_response = await fetch("https://www.pixiv.net/ajax/illust/" + image_id)
   const illust_data = (await illust_data_response.json()).body
-  console.log(illust_data)
+  console.log("Fetched data:", illust_data)
 
   const filename = illust_data.illustTitle + "-" + image_id + "-" + illust_data.userAccount + "-" + illust_data.createDate.replace(":", "_")
 
-  const button_section = await waitFor(mutation => {
+  const button_section = await waitFor(() => {
     let sections = document.querySelectorAll("section")
     if (sections.length >= 2 && sections[1].childElementCount >= 3 /* NOTE: 3 for guests, 4 for logged users */ ) {
       return sections[1]
@@ -138,7 +139,7 @@ history.pushState = (function (_super) {
   })
 
   if (illust_data.illustType == 0 || illust_data.illustType == 1) /* Picture & Manga */ {
-    const url = illust_data.urls.original
+    const url = illust_data.urls.original // Original vs Regular
     const extension = url.split(".").pop()
 
     if (illust_data.pageCount == 1) /* Single image mode */ {
@@ -174,7 +175,7 @@ history.pushState = (function (_super) {
       canvas.height = 0
 
       const fetched_images = await Promise.all(
-        Object.entries(images).map(([idx, data]) => {
+        Object.values(images).map(data => {
           const object_url = URL.createObjectURL(data)
 
           return new Promise(resolve => {
