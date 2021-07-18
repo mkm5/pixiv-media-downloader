@@ -1,9 +1,11 @@
 // ==UserScript==
 // @name Pixiv Media Downloader
+// @description Simple media downloader for pixiv.net
 // @version 0.2.1
 // @icon https://pixiv.net/favicon.ico
 // @downloadURL https://raw.githubusercontent.com/mkm5/pixiv-media-downloader/master/userscript.js
 // @homepageURL https://github.com/mkm5/pixiv-media-downloader
+// @namespace https://github.com/mkm5
 // @match https://www.pixiv.net/*
 // @run-at document-idle
 // @noframes
