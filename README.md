@@ -7,3 +7,5 @@
     - as continuous image
 - Ability to download animated pictures in form of a gif.
 
+[Greasy Fork](https://greasyfork.org/en/scripts/429582-pixiv-media-downloader)
+
