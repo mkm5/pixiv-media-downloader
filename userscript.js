@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name Pixiv Media Downloader
 // @description Simple media downloader for pixiv.net
-// @version 0.2.1
+// @version 0.2.2
 // @icon https://pixiv.net/favicon.ico
 // @downloadURL https://raw.githubusercontent.com/mkm5/pixiv-media-downloader/master/userscript.js
 // @homepageURL https://github.com/mkm5/pixiv-media-downloader
@@ -131,7 +131,7 @@ history.pushState = (function (_super) {
   const illust_data = (await illust_data_response.json()).body
   console.log("Fetched data:", illust_data)
 
-  const filename = illust_data.illustTitle + "-" + image_id + "-" + illust_data.userAccount + "-" + illust_data.createDate.replace(":", "_")
+  const filename = illust_data.illustTitle + "-" + image_id + "-" + illust_data.userName + "-" + illust_data.createDate.replace(":", "_")
 
   const button_section = await waitFor(() => {
     let sections = document.querySelectorAll("section")
@@ -141,12 +141,12 @@ history.pushState = (function (_super) {
   })
 
   if (illust_data.illustType == 0 || illust_data.illustType == 1) /* Picture & Manga */ {
-    const url = illust_data.urls.original // Original vs Regular
+    const url = illust_data.urls.original
     const extension = url.split(".").pop()
 
     if (illust_data.pageCount == 1) /* Single image mode */ {
       button_section.appendChild(createButton("Download original", async function () {
-        requestImage(url).then(data => saveFile(filename + extension, data))
+        requestImage(url).then(data => saveFile(filename + '.' + extension, data))
       }))
       return;
     }
@@ -214,8 +214,8 @@ history.pushState = (function (_super) {
 
       new JSZip().loadAsync(zip_blob)
         .then(async zip => {
-          const gif = new GIF({ workers: 4, quality: 10, workerScript: GIF_worker_URL })
-          gif.on("finished", blob => {
+          const gif = new GIF({ workers: 6, quality: 10, workerScript: GIF_worker_URL })
+          giif.on("finished", blob => {
             saveFile(filename + ".gif", blob)
           })
 
