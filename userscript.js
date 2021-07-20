@@ -215,7 +215,7 @@ history.pushState = (function (_super) {
       new JSZip().loadAsync(zip_blob)
         .then(async zip => {
           const gif = new GIF({ workers: 6, quality: 10, workerScript: GIF_worker_URL })
-          giif.on("finished", blob => {
+          gif.on("finished", blob => {
             saveFile(filename + ".gif", blob)
           })
 
