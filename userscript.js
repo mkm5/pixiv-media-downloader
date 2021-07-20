@@ -131,7 +131,7 @@ history.pushState = (function (_super) {
   const illust_data = (await illust_data_response.json()).body
   console.log("Fetched data:", illust_data)
 
-  const filename = illust_data.illustTitle + "-" + image_id + "-" + illust_data.userName + "-" + illust_data.createDate.replace(":", "_")
+  const filename = `${illust_data.illustTitle},${illust_data.illustId}-[${illust_data.userName}]-(${illust_data.createDate.split("T")[0]})`
 
   const button_section = await waitFor(() => {
     let sections = document.querySelectorAll("section")
