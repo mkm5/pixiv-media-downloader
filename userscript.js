@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name Pixiv Media Downloader
 // @description Simple media downloader for pixiv.net
-// @version 0.2.2
+// @version 0.2.3
 // @icon https://pixiv.net/favicon.ico
 // @downloadURL https://raw.githubusercontent.com/mkm5/pixiv-media-downloader/master/userscript.js
 // @homepageURL https://github.com/mkm5/pixiv-media-downloader
@@ -209,14 +209,27 @@ history.pushState = (function (_super) {
     const ugoira_meta_data = (await ugoira_meta_response.json()).body
 
     button_section.appendChild(createButton("Download GIF", async function () {
+      const btn = this
+      btn.disabled = true
+      const __original_text = btn.innerText
+
+      btn.innerText = __original_text + ` [0%]`
       const zip_file_response = await fetch(ugoira_meta_data.originalSrc)
+      btn.innerText = __original_text + ` [25%]`
       const zip_blob = await zip_file_response.blob()
+      btn.innerText = __original_text + ` [50%]`
 
       new JSZip().loadAsync(zip_blob)
         .then(async zip => {
           const gif = new GIF({ workers: 6, quality: 10, workerScript: GIF_worker_URL })
           gif.on("finished", blob => {
             saveFile(filename + ".gif", blob)
+            btn.innerText = __original_text
+            btn.disabled = false
+          })
+
+          gif.on("progress", x => {
+            btn.innerText = __original_text + ` [${Math.round(50 + x * 50)}%]` // Math.round?
           })
 
           await Promise.allSettled(
