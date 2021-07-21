@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name Pixiv Media Downloader
 // @description Simple media downloader for pixiv.net
-// @version 0.2.3
+// @version 0.3
 // @icon https://pixiv.net/favicon.ico
 // @downloadURL https://raw.githubusercontent.com/mkm5/pixiv-media-downloader/master/userscript.js
 // @homepageURL https://github.com/mkm5/pixiv-media-downloader
@@ -19,8 +19,9 @@ const ARTWORK_URL = /https:\/\/www\.pixiv\.net\/([a-z]+\/)?artworks\/[0-9]+/
 async function waitFor(f_condition) {
   return new Promise(resolve => {
     new MutationObserver((mutation, me) => {
-      if (out = f_condition(mutation)) {
-        resolve(out)
+      let result = f_condition(mutation)
+      if (result) {
+        resolve(result)
         me.disconnect()
         return
       }
@@ -32,12 +33,11 @@ async function waitFor(f_condition) {
 }
 
 function createButton(text, onclick) {
-  const node = document.createElement("div")
-  node.style.marginRight = "10px"
-
   const button = document.createElement("button")
   button.type = "button"
+  button.innerText = text
   button.onclick = onclick
+  button.style.marginRight = "10px"
   button.style.display = "inline-block"
   button.style.height = "32px"
   button.style.lineHeight = "32px"
@@ -46,15 +46,10 @@ function createButton(text, onclick) {
   button.style.color = "inherit"
   button.style.fontWeight = "700"
   button.style.cursor = "pointer"
-
-  const span = document.createElement("span")
-  span.style.verticalAlign = "middle"
-
-  span.appendChild(document.createTextNode(text))
-  button.appendChild(span)
-  node.appendChild(button)
-
-  return node
+  button._setup = function () { this._ot = this.innerText; this.disabled = true; return this }
+  button._reset = function () { this.innerText = this._ot; this.disabled = false }
+  button._update = function (text) { this.innerText = this._ot + text }
+  return button
 }
 
 function saveFile(filename, data) {
@@ -91,19 +86,19 @@ async function loadImage(src) {
   })
 }
 
-async function fetchImages(url_base, illustration_count) {
-  const images = {}
-  return new Promise(fetch_resolve => {
-    const promises = []
-    for (let i = 0; i < illustration_count; i++) {
-      const url = url_base.replace(/_p\d+/, `_p${i}`)
-      promises.push(requestImage(url).then(data => { images[i] = data }))
-    }
-
-    Promise.allSettled(promises).then(() => {
-      fetch_resolve(images)
+async function fetchImages(url_f, n, _call_on_fetch) {
+  return Promise.all(
+    [...Array(n).keys()].map(idx => {
+      return new Promise(resolve => {
+        const url = url_f(idx)
+        requestImage(url)
+        .then(data => {
+          _call_on_fetch(idx, data)
+          resolve([idx, data])
+        })
+      })
     })
-  })
+  )
 }
 
 history.pushState = (function (_super) {
@@ -140,52 +135,78 @@ history.pushState = (function (_super) {
     }
   })
 
+
   if (illust_data.illustType == 0 || illust_data.illustType == 1) /* Picture & Manga */ {
     const url = illust_data.urls.original
     const extension = url.split(".").pop()
 
     if (illust_data.pageCount == 1) /* Single image mode */ {
       button_section.appendChild(createButton("Download original", async function () {
-        requestImage(url).then(data => saveFile(filename + '.' + extension, data))
+        const btn = this._setup()
+
+        requestImage(url).then(data => {
+          saveFile(filename + '.' + extension, data)
+          btn._reset()
+        })
       }))
       return;
     }
 
+    const next_url = n => url.replace(/p\d+/, `p${n}`)
+
     button_section.appendChild(createButton("Download separately", async function () {
-      const images = await fetchImages(url, illust_data.pageCount)
-      Object.entries(images).forEach(([idx, data]) => {
+      const btn = this._setup()
+      let i = 0
+      await fetchImages(next_url, illust_data.pageCount, (idx, data) => {
+        const percents = Math.round((++i / illust_data.pageCount) * 100)
+        btn._update(` [${percents}%]`)
         saveFile(filename + `.p${idx}` + "." + extension, data)
       })
+      btn._reset()
     }))
 
     button_section.appendChild(createButton("Download zip", async function () {
-      const images = await fetchImages(url, illust_data.pageCount)
+      const btn = this._setup()
       const zip = new JSZip()
-      for (const [idx, data] of Object.entries(images)) {
+
+      let i = 0
+      await fetchImages(next_url, illust_data.pageCount, (idx, data) => {
+        const percents = Math.round((++i / illust_data.pageCount) * 100)
+        btn._update(` [${percents}%]`)
         zip.file(filename + `.p${idx}` + "." + extension, data, { binary: true })
-      }
-      zip.generateAsync({ type: "blob" }).then(content => saveFile(filename + ".zip", content))
+      })
+
+      zip.generateAsync({ type: "blob" }).then(content => {
+        saveFile(filename + ".zip", content)
+        btn._reset()
+      })
     }))
 
     button_section.appendChild(createButton("Download continuous", async function () {
-      const images = await fetchImages(url, illust_data.pageCount)
-
+      const btn = this._setup()
       const canvas = document.createElement("canvas")
-      const context = canvas.getContext("2d")
-
       canvas.width = 0
       canvas.height = 0
+      const context = canvas.getContext("2d")
 
-      const fetched_images = await Promise.all(
-        Object.values(images).map(data => {
+      let i = 0;
+      const fetched_images = await fetchImages(next_url, illust_data.pageCount, () => {
+        const percents = Math.round((++i / illust_data.pageCount) * 33)
+        btn._update(` [${percents}%]`)
+      })
+
+      let j = 0;
+      const images = await Promise.all(
+        Object.values(fetched_images).map(([_, data]) => {
           const object_url = URL.createObjectURL(data)
-
           return new Promise(resolve => {
             loadImage(object_url).then(image => {
               if (canvas.width < image.width)
                 canvas.width = image.width
               canvas.height += image.height
 
+              const percents = Math.round(33 + (++j / illust_data.pageCount) * 33)
+              btn._update(` [${percents}%]`)
               resolve(image)
               URL.revokeObjectURL(object_url)
             })
@@ -193,14 +214,25 @@ history.pushState = (function (_super) {
         })
       )
 
-      let current_position = 0;
-      for (const image of fetched_images) {
+      // TODO: Break image loading process when error occures
+      if (canvas.height > 32757 || canvas.width > 32757) {
+        btn._rest()
+        alert("[Error] Image height would exceed the limit. Aborting.")
+        return;
+      }
+
+      let k = 0
+      let current_position = 0
+      for (const image of images) {
+        const percents = Math.round(66 + (++k / illust_data.pageCount) * 34)
+        btn._update(` [${percents}%]`)
         context.drawImage(image, Math.round((canvas.width - image.width) / 2), current_position)
         current_position += image.height
       }
 
       canvas.toBlob(blob => {
         saveFile(filename + "." + extension, blob)
+        btn._reset()
       })
     }))
   }
@@ -209,27 +241,24 @@ history.pushState = (function (_super) {
     const ugoira_meta_data = (await ugoira_meta_response.json()).body
 
     button_section.appendChild(createButton("Download GIF", async function () {
-      const btn = this
-      btn.disabled = true
-      const __original_text = btn.innerText
+      const btn = this._setup()
 
-      btn.innerText = __original_text + ` [0%]`
+      btn._update(` [0%]`)
       const zip_file_response = await fetch(ugoira_meta_data.originalSrc)
-      btn.innerText = __original_text + ` [25%]`
+      btn._update(` [25%]`)
       const zip_blob = await zip_file_response.blob()
-      btn.innerText = __original_text + ` [50%]`
+      btn._update(` [50%]`)
 
       new JSZip().loadAsync(zip_blob)
         .then(async zip => {
           const gif = new GIF({ workers: 6, quality: 10, workerScript: GIF_worker_URL })
           gif.on("finished", blob => {
             saveFile(filename + ".gif", blob)
-            btn.innerText = __original_text
-            btn.disabled = false
+            btn._reset()
           })
 
           gif.on("progress", x => {
-            btn.innerText = __original_text + ` [${Math.round(50 + x * 50)}%]` // Math.round?
+            btn._update(` [${Math.round(50 + x * 50)}%]`)
           })
 
           await Promise.allSettled(
