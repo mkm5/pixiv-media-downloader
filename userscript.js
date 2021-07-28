@@ -153,6 +153,7 @@ async function fetchImages(url_func, n, on_fetch_call) {
     }
 
     const next_url = n => url.replace(/p\d+/, `p${n}`)
+
     button_section.appendChild(createButton('Download separately', async function () {
       const btn = this._setup()
       let i = 0
