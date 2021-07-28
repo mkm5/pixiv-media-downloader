@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name Pixiv Media Downloader
 // @description Simple media downloader for pixiv.net
-// @version 0.3.6
+// @version 0.3.7
 // @icon https://pixiv.net/favicon.ico
 // @downloadURL https://raw.githubusercontent.com/mkm5/pixiv-media-downloader/master/userscript.js
 // @homepageURL https://github.com/mkm5/pixiv-media-downloader
@@ -9,7 +9,7 @@
 // @author mkm5
 // @license MPL-2.0
 // @match https://www.pixiv.net/*
-// @run-at document-idle
+// @run-at document-start
 // @noframes
 // @require https://cdnjs.cloudflare.com/ajax/libs/jszip/3.6.0/jszip.min.js
 // @require https://greasyfork.org/scripts/2963-gif-js/code/gifjs.js
@@ -18,6 +18,15 @@
 
 const MAX_CANVAS_SIZE = 32757
 const ARTWORK_URL = /https:\/\/www\.pixiv\.net\/([a-z]+\/)?artworks\/[0-9]+/
+
+history.pushState = (function (_super) {
+  return function () {
+    const funcResult = _super.apply(this, arguments)
+    if (window.location.href.match(ARTWORK_URL))
+      scriptInit()
+    return funcResult
+  }
+})(history.pushState)
 
 async function waitFor(f_condition) {
   return new Promise(resolve => {
@@ -106,15 +115,6 @@ async function fetchImages(url_func, n, on_fetch_call) {
   )
 }
 
-history.pushState = (function (_super) {
-  return function () {
-    const funcResult = _super.apply(this, arguments)
-    if (window.location.href.match(ARTWORK_URL))
-      scriptInit()
-    return funcResult
-  }
-})(history.pushState)
-
 (async function scriptInit() {
   if (!window.location.href.match(ARTWORK_URL))
     return
@@ -136,7 +136,8 @@ history.pushState = (function (_super) {
   const button_section = await waitFor(() => {
     const sections = document.querySelectorAll('section')
     /* NOTE: (childElementCount) 3 for guests, 4 for logged users */
-    return sections.length >= 2 && sections[1].childElementCount >= 3 ? sections[1] : null
+    return sections && sections.length >= 2 && sections[1].childElementCount >= 3
+      ? sections[1] : undefined
   })
 
   if (illust_data.illustType === 0 || illust_data.illustType === 1) /* Picture & Manga */ {
