@@ -1,11 +1,11 @@
 // ==UserScript==
 // @name Pixiv Media Downloader
+// @namespace Pixiv Media Downloader
 // @description Simple media downloader for pixiv.net
-// @version 0.3.7
+// @version 0.3.8
 // @icon https://pixiv.net/favicon.ico
 // @downloadURL https://raw.githubusercontent.com/mkm5/pixiv-media-downloader/master/userscript.js
 // @homepageURL https://github.com/mkm5/pixiv-media-downloader
-// @namespace https://github.com/mkm5
 // @author mkm5
 // @license MPL-2.0
 // @match https://www.pixiv.net/*
@@ -30,16 +30,13 @@ history.pushState = (function (_super) {
 
 async function waitFor(f_condition) {
   return new Promise(resolve => {
-    new MutationObserver((mutation, me) => {
-      const result = f_condition(mutation)
+    const interval_id = setInterval(() => {
+      const result = f_condition()
       if (result) {
+        clearInterval(interval_id)
         resolve(result)
-        me.disconnect()
       }
-    }).observe(document, {
-      childList: true,
-      subtree: true
-    })
+    }, 150)
   })
 }
 
@@ -156,7 +153,6 @@ async function fetchImages(url_func, n, on_fetch_call) {
     }
 
     const next_url = n => url.replace(/p\d+/, `p${n}`)
-
     button_section.appendChild(createButton('Download separately', async function () {
       const btn = this._setup()
       let i = 0
