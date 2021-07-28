@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name Pixiv Media Downloader
 // @description Simple media downloader for pixiv.net
-// @version 0.3
+// @version 0.3.5
 // @icon https://pixiv.net/favicon.ico
 // @downloadURL https://raw.githubusercontent.com/mkm5/pixiv-media-downloader/master/userscript.js
 // @homepageURL https://github.com/mkm5/pixiv-media-downloader
@@ -14,6 +14,7 @@
 // @grant GM_xmlhttpRequest
 // ==/UserScript==
 
+const MAX_CANVAS_SIZE = 32757
 const ARTWORK_URL = /https:\/\/www\.pixiv\.net\/([a-z]+\/)?artworks\/[0-9]+/
 
 async function waitFor(f_condition) {
@@ -93,8 +94,10 @@ async function fetchImages(url_f, n, _call_on_fetch) {
         const url = url_f(idx)
         requestImage(url)
         .then(data => {
-          _call_on_fetch(idx, data)
-          resolve([idx, data])
+          const resolved = _call_on_fetch(idx, data, resolve)
+          if (!resolved) {
+            resolve([idx, data])
+          }
         })
       })
     })
@@ -135,7 +138,6 @@ history.pushState = (function (_super) {
     }
   })
 
-
   if (illust_data.illustType == 0 || illust_data.illustType == 1) /* Picture & Manga */ {
     const url = illust_data.urls.original
     const extension = url.split(".").pop()
@@ -143,7 +145,6 @@ history.pushState = (function (_super) {
     if (illust_data.pageCount == 1) /* Single image mode */ {
       button_section.appendChild(createButton("Download original", async function () {
         const btn = this._setup()
-
         requestImage(url).then(data => {
           saveFile(filename + '.' + extension, data)
           btn._reset()
@@ -189,33 +190,23 @@ history.pushState = (function (_super) {
       canvas.height = 0
       const context = canvas.getContext("2d")
 
-      let i = 0;
-      const fetched_images = await fetchImages(next_url, illust_data.pageCount, () => {
-        const percents = Math.round((++i / illust_data.pageCount) * 33)
+      let i = 0
+      const images = await fetchImages(next_url, illust_data.pageCount, (_, data, resolve) => {
+        const object_url = URL.createObjectURL(data)
+        loadImage(object_url).then(image => {
+          if (canvas.width < image.width)
+            canvas.width = image.width
+          canvas.height += image.height
+          resolve(image)
+          URL.revokeObjectURL(object_url)
+        })
+        const percents = Math.round((++i / illust_data.pageCount) * 70)
         btn._update(` [${percents}%]`)
+        return true
       })
 
-      let j = 0;
-      const images = await Promise.all(
-        Object.values(fetched_images).map(([_, data]) => {
-          const object_url = URL.createObjectURL(data)
-          return new Promise(resolve => {
-            loadImage(object_url).then(image => {
-              if (canvas.width < image.width)
-                canvas.width = image.width
-              canvas.height += image.height
-
-              const percents = Math.round(33 + (++j / illust_data.pageCount) * 33)
-              btn._update(` [${percents}%]`)
-              resolve(image)
-              URL.revokeObjectURL(object_url)
-            })
-          })
-        })
-      )
-
       // TODO: Break image loading process when error occures
-      if (canvas.height > 32757 || canvas.width > 32757) {
+      if (canvas.height > MAX_CANVAS_SIZE || canvas.width > MAX_CANVAS_SIZE) {
         btn._rest()
         alert("[Error] Image height would exceed the limit. Aborting.")
         return;
@@ -224,7 +215,7 @@ history.pushState = (function (_super) {
       let k = 0
       let current_position = 0
       for (const image of images) {
-        const percents = Math.round(66 + (++k / illust_data.pageCount) * 34)
+        const percents = Math.round(70 + (++k / illust_data.pageCount) * 30)
         btn._update(` [${percents}%]`)
         context.drawImage(image, Math.round((canvas.width - image.width) / 2), current_position)
         current_position += image.height
@@ -245,33 +236,43 @@ history.pushState = (function (_super) {
 
       btn._update(` [0%]`)
       const zip_file_response = await fetch(ugoira_meta_data.originalSrc)
-      btn._update(` [25%]`)
+      btn._update(` [10%]`)
       const zip_blob = await zip_file_response.blob()
-      btn._update(` [50%]`)
+      btn._update(` [15%]`)
+      const zip = await new JSZip().loadAsync(zip_blob)
+      btn._update(` [20%]`)
 
-      new JSZip().loadAsync(zip_blob)
-        .then(async zip => {
-          const gif = new GIF({ workers: 6, quality: 10, workerScript: GIF_worker_URL })
-          gif.on("finished", blob => {
-            saveFile(filename + ".gif", blob)
-            btn._reset()
+      const gif = new GIF({ workers: 6, quality: 10, workerScript: GIF_worker_URL })
+      gif.on("finished", blob => {
+        saveFile(filename + ".gif", blob)
+      })
+
+      gif.on("progress", p => {
+        btn._update(` [${Math.round(25 + p * 75)}%]`)
+      })
+
+      const frames = await Promise.all(
+        ugoira_meta_data.frames.map((frame, idx) => {
+          return new Promise(resolve => {
+            zip.file(frame.file).async("blob")
+              .then(data => {
+                const url = URL.createObjectURL(data)
+                loadImage(url)
+                  .then(image => {
+                    resolve({ idx: idx, image: image, delay: frame.delay })
+                    URL.revokeObjectURL(url)
+                  })
+              })
           })
-
-          gif.on("progress", x => {
-            btn._update(` [${Math.round(50 + x * 50)}%]`)
-          })
-
-          await Promise.allSettled(
-            ugoira_meta_data.frames.map(async frame => {
-              const data = await zip.file(frame.file).async("blob")
-              const url = URL.createObjectURL(data)
-              const image = await loadImage(url)
-              gif.addFrame(image, { delay: frame.delay })
-              URL.revokeObjectURL(url)
-            })
-          )
-          gif.render()
         })
+      )
+
+      for (const frame of frames) {
+        gif.addFrame(frame.image, { delay: frame.delay })
+      }
+      btn._update(` [25%]`)
+
+      gif.render()
     }))
   }
 })()
