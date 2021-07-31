@@ -94,18 +94,15 @@ async function loadImage(src) {
   })
 }
 
-// TODO: Replace urlFunc with url generator
-async function fetchImages(url_func, n, on_fetch_call) {
+async function fetchImages(urls, on_fetch_call) {
   return Promise.all(
-    [...Array(n).keys()].map(idx => {
+    urls.map(([idx, url]) => {
       return new Promise(resolve => {
-        const url = url_func(idx)
         requestImage(url)
           .then(data => {
             const resolved = on_fetch_call(idx, data, resolve)
-            if (!resolved) {
+            if (!resolved)
               resolve([idx, data])
-            }
           })
       })
     })
@@ -152,12 +149,55 @@ async function fetchImages(url_func, n, on_fetch_call) {
       return;
     }
 
-    const next_url = n => url.replace(/p\d+/, `p${n}`)
+    //const next_url = n => url.replace(/p\d+/, `p${n}`)
+
+    const is_image_included = []
+    const urls_gen = function*() {
+      for (const idx in is_image_included) {
+        if (is_image_included[idx])
+          yield [idx, url.replace(/p\d+/, `p${idx}`)]
+      }
+    }
+    const figure = await waitFor(() => {
+      return document.querySelector('figure')
+    })
+
+    new MutationObserver((_, observer) => {
+      const container = figure.firstChild
+      if (container?.children.length === illust_data.pageCount + 2) {
+        for (let i = 0; i < illust_data.pageCount; i++) {
+          const checkbox = document.createElement('input')
+          checkbox.type = 'checkbox'
+          checkbox.checked = true
+          checkbox.style.position = 'absolute'
+          // Images except for the first one are splitted by 40px margin on top
+          checkbox.style.top = 0 + (i === 0 ? 0 : 40) + 'px'
+          is_image_included.push(true)
+
+          checkbox.onchange = function () {
+            is_image_included[i] = this.checked
+            console.log(is_image_included)
+          }
+
+          // First images is actually a second element of container
+          container.children[i + 1].appendChild(checkbox)
+        }
+
+        // We need to make a space for a checkboxes to be clickable
+        container.lastChild.style.left = '20px'
+
+        observer.disconnect()
+      }
+
+    }).observe(figure, {
+      childList: true,
+      subtree: true
+    })
 
     button_section.appendChild(createButton('Download separately', async function () {
       const btn = this._setup()
       let i = 0
-      await fetchImages(next_url, illust_data.pageCount, (idx, data) => {
+      await fetchImages([...urls_gen()], (idx, data) => {
         const percents = Math.round((++i / illust_data.pageCount) * 100)
         btn._update(` [${percents}%]`)
         saveFile(`${filename}.p${idx}.${extension}`, data)
@@ -170,7 +210,7 @@ async function fetchImages(url_func, n, on_fetch_call) {
       const zip = new JSZip()
 
       let i = 0
-      await fetchImages(next_url, illust_data.pageCount, (idx, data) => {
+      await fetchImages([...urls_gen()], (idx, data) => {
         const percents = Math.round((++i / illust_data.pageCount) * 100)
         btn._update(` [${percents}%]`)
         zip.file(`${filename}.p${idx}.${extension}`, data, { binary: true })
@@ -190,7 +230,7 @@ async function fetchImages(url_func, n, on_fetch_call) {
       const context = canvas.getContext('2d')
 
       let i = 0
-      const images = await fetchImages(next_url, illust_data.pageCount, (_, data, resolve) => {
+      const images = await fetchImages([...urls_gen()], (_, data, resolve) => {
         const object_url = URL.createObjectURL(data)
         loadImage(object_url).then(image => {
           if (canvas.width < image.width)
