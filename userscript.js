@@ -2,7 +2,7 @@
 // @name Pixiv Media Downloader
 // @namespace Pixiv Media Downloader
 // @description Simple media downloader for pixiv.net
-// @version 0.3.8
+// @version 0.4.0
 // @icon https://pixiv.net/favicon.ico
 // @downloadURL https://raw.githubusercontent.com/mkm5/pixiv-media-downloader/master/userscript.js
 // @homepageURL https://github.com/mkm5/pixiv-media-downloader
@@ -40,6 +40,15 @@ async function waitFor(f_condition) {
   })
 }
 
+async function setupObserver(target, func) {
+  new MutationObserver(func)
+    .observe(target, {
+      childList: true,
+      subtree: true,
+      attributes: true
+    })
+}
+
 function createButton(text, onclick) {
   const button = document.createElement('button')
   button.type = 'button'
@@ -65,7 +74,7 @@ function createCheckbox(n, onchange) {
   checkbox.type = 'checkbox'
   checkbox.checked = true
   checkbox.style.position = 'absolute'
-  // Images (except for the first one) are splitted by 40px margin on top
+  // NOTE: Images (except for the first one) are splitted by 40px top margin
   checkbox.style.top = 0 + (n === 0 ? 0 : 40) + 'px'
   checkbox.onchange = onchange
   return checkbox
@@ -120,6 +129,14 @@ async function fetchImages(urls, on_fetch_call) {
   )
 }
 
+function* urlsGen(url, is_image_included) {
+  for (let idx = 0; idx < is_image_included.length; idx++) {
+    if (is_image_included[idx])
+      yield [idx, url.replace(/p\d+/, `p${idx}`)]
+  }
+}
+
+
 (async function scriptInit() {
   if (!window.location.href.match(ARTWORK_URL))
     return
@@ -164,41 +181,30 @@ async function fetchImages(urls, on_fetch_call) {
     for (let i = 0; i < illust_data.pageCount; i ++)
           is_image_included.push(true)
 
-    const urls_gen = function*() {
-      for (const idx in is_image_included) {
-        if (is_image_included[idx])
-          yield [idx, url.replace(/p\d+/, `p${idx}`)]
-      }
-    }
-
     const figure = await waitFor(() => {
       return document.querySelector('figure')
     })
 
-    new MutationObserver((_, observer) => {
+    setupObserver(figure, (_, observer) => {
       const container = figure.firstChild
-      if (container?.children.length === illust_data.pageCount + 2) {
+      if (container?.children.length - 2 === illust_data.pageCount) {
         for (let i = 0; i < illust_data.pageCount; i++) {
-          const checkbox = createCheckbox(i, function() {
+          const checkbox = createCheckbox(i, function () {
             is_image_included[i] = this.checked
-            console.log(is_image_included)
           })
-          // First images is actually a second element of container
+          // NOTE: First images is actually a second element of container
           container.children[i + 1].appendChild(checkbox)
         }
-        // Makeing a space for a checkboxes to be clickable
-        container.lastChild.style.left = '20px'
+        // NOTE: Making a space for a checkboxes, so they can be clicked on
+        container.lastChild.style.left = '25px'
         observer.disconnect()
       }
-    }).observe(figure, {
-      childList: true,
-      subtree: true
     })
 
     button_section.appendChild(createButton('Download separately', async function () {
       const btn = this._setup()
       let i = 0
-      await fetchImages([...urls_gen()], (idx, data) => {
+      await fetchImages([...urlsGen(url, is_image_included)], (idx, data) => {
         const percents = Math.round((++i / illust_data.pageCount) * 100)
         btn._update(` [${percents}%]`)
         saveFile(`${filename}.p${idx}.${extension}`, data)
@@ -211,7 +217,7 @@ async function fetchImages(urls, on_fetch_call) {
       const zip = new JSZip()
 
       let i = 0
-      await fetchImages([...urls_gen()], (idx, data) => {
+      await fetchImages([...urlsGen(url, is_image_included)], (idx, data) => {
         const percents = Math.round((++i / illust_data.pageCount) * 100)
         btn._update(` [${percents}%]`)
         zip.file(`${filename}.p${idx}.${extension}`, data, { binary: true })
@@ -231,7 +237,7 @@ async function fetchImages(urls, on_fetch_call) {
       const context = canvas.getContext('2d')
 
       let i = 0
-      const images = await fetchImages([...urls_gen()], (_, data, resolve) => {
+      const images = await fetchImages([...urlsGen(url, is_image_included)], (_, data, resolve) => {
         const object_url = URL.createObjectURL(data)
         loadImage(object_url).then(image => {
           if (canvas.width < image.width)
