@@ -60,6 +60,17 @@ function createButton(text, onclick) {
   return button
 }
 
+function createCheckbox(n, onchange) {
+  const checkbox = document.createElement('input')
+  checkbox.type = 'checkbox'
+  checkbox.checked = true
+  checkbox.style.position = 'absolute'
+  // Images (except for the first one) are splitted by 40px margin on top
+  checkbox.style.top = 0 + (n === 0 ? 0 : 40) + 'px'
+  checkbox.onchange = onchange
+  return checkbox
+}
+
 function saveFile(filename, data) {
   const link = document.createElement('a')
   link.href = URL.createObjectURL(data)
@@ -149,15 +160,17 @@ async function fetchImages(urls, on_fetch_call) {
       return;
     }
 
-    //const next_url = n => url.replace(/p\d+/, `p${n}`)
-
     const is_image_included = []
+    for (let i = 0; i < illust_data.pageCount; i ++)
+          is_image_included.push(true)
+
     const urls_gen = function*() {
       for (const idx in is_image_included) {
         if (is_image_included[idx])
           yield [idx, url.replace(/p\d+/, `p${idx}`)]
       }
     }
+
     const figure = await waitFor(() => {
       return document.querySelector('figure')
     })
@@ -166,29 +179,17 @@ async function fetchImages(urls, on_fetch_call) {
       const container = figure.firstChild
       if (container?.children.length === illust_data.pageCount + 2) {
         for (let i = 0; i < illust_data.pageCount; i++) {
-          const checkbox = document.createElement('input')
-          checkbox.type = 'checkbox'
-          checkbox.checked = true
-          checkbox.style.position = 'absolute'
-          // Images except for the first one are splitted by 40px margin on top
-          checkbox.style.top = 0 + (i === 0 ? 0 : 40) + 'px'
-          is_image_included.push(true)
-
-          checkbox.onchange = function () {
+          const checkbox = createCheckbox(i, function() {
             is_image_included[i] = this.checked
             console.log(is_image_included)
-          }
-
+          })
           // First images is actually a second element of container
           container.children[i + 1].appendChild(checkbox)
         }
-
-        // We need to make a space for a checkboxes to be clickable
+        // Makeing a space for a checkboxes to be clickable
         container.lastChild.style.left = '20px'
-
         observer.disconnect()
       }
-
     }).observe(figure, {
       childList: true,
       subtree: true
