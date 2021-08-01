@@ -2,7 +2,7 @@
 // @name Pixiv Media Downloader
 // @namespace Pixiv Media Downloader
 // @description Simple media downloader for pixiv.net
-// @version 0.3.8
+// @version 0.4.0
 // @icon https://pixiv.net/favicon.ico
 // @downloadURL https://raw.githubusercontent.com/mkm5/pixiv-media-downloader/master/userscript.js
 // @homepageURL https://github.com/mkm5/pixiv-media-downloader
@@ -40,6 +40,15 @@ async function waitFor(f_condition) {
   })
 }
 
+async function setupObserver(target, func) {
+  new MutationObserver(func)
+    .observe(target, {
+      childList: true,
+      subtree: true,
+      attributes: true
+    })
+}
+
 function createButton(text, onclick) {
   const button = document.createElement('button')
   button.type = 'button'
@@ -58,6 +67,17 @@ function createButton(text, onclick) {
   button._reset = function () { this.innerText = this._ot; this.disabled = false }
   button._update = function (t) { this.innerText = this._ot + t }
   return button
+}
+
+function createCheckbox(n, onchange) {
+  const checkbox = document.createElement('input')
+  checkbox.type = 'checkbox'
+  checkbox.checked = true
+  checkbox.style.position = 'absolute'
+  // NOTE: Images (except for the first one) are splitted by 40px top margin
+  checkbox.style.top = 0 + (n === 0 ? 0 : 40) + 'px'
+  checkbox.onchange = onchange
+  return checkbox
 }
 
 function saveFile(filename, data) {
@@ -94,23 +114,28 @@ async function loadImage(src) {
   })
 }
 
-// TODO: Replace urlFunc with url generator
-async function fetchImages(url_func, n, on_fetch_call) {
+async function fetchImages(urls, on_fetch_call) {
   return Promise.all(
-    [...Array(n).keys()].map(idx => {
+    urls.map(([idx, url]) => {
       return new Promise(resolve => {
-        const url = url_func(idx)
         requestImage(url)
           .then(data => {
             const resolved = on_fetch_call(idx, data, resolve)
-            if (!resolved) {
+            if (!resolved)
               resolve([idx, data])
-            }
           })
       })
     })
   )
 }
+
+function* urlsGen(url, is_image_included) {
+  for (let idx = 0; idx < is_image_included.length; idx++) {
+    if (is_image_included[idx])
+      yield [idx, url.replace(/p\d+/, `p${idx}`)]
+  }
+}
+
 
 (async function scriptInit() {
   if (!window.location.href.match(ARTWORK_URL))
@@ -152,12 +177,34 @@ async function fetchImages(url_func, n, on_fetch_call) {
       return;
     }
 
-    const next_url = n => url.replace(/p\d+/, `p${n}`)
+    const is_image_included = []
+    for (let i = 0; i < illust_data.pageCount; i ++)
+          is_image_included.push(true)
+
+    const figure = await waitFor(() => {
+      return document.querySelector('figure')
+    })
+
+    setupObserver(figure, (_, observer) => {
+      const container = figure.firstChild
+      if (container?.children.length - 2 === illust_data.pageCount) {
+        for (let i = 0; i < illust_data.pageCount; i++) {
+          const checkbox = createCheckbox(i, function () {
+            is_image_included[i] = this.checked
+          })
+          // NOTE: First images is actually a second element of container
+          container.children[i + 1].appendChild(checkbox)
+        }
+        // NOTE: Making a space for a checkboxes, so they can be clicked on
+        container.lastChild.style.left = '25px'
+        observer.disconnect()
+      }
+    })
 
     button_section.appendChild(createButton('Download separately', async function () {
       const btn = this._setup()
       let i = 0
-      await fetchImages(next_url, illust_data.pageCount, (idx, data) => {
+      await fetchImages([...urlsGen(url, is_image_included)], (idx, data) => {
         const percents = Math.round((++i / illust_data.pageCount) * 100)
         btn._update(` [${percents}%]`)
         saveFile(`${filename}.p${idx}.${extension}`, data)
@@ -170,7 +217,7 @@ async function fetchImages(url_func, n, on_fetch_call) {
       const zip = new JSZip()
 
       let i = 0
-      await fetchImages(next_url, illust_data.pageCount, (idx, data) => {
+      await fetchImages([...urlsGen(url, is_image_included)], (idx, data) => {
         const percents = Math.round((++i / illust_data.pageCount) * 100)
         btn._update(` [${percents}%]`)
         zip.file(`${filename}.p${idx}.${extension}`, data, { binary: true })
@@ -190,7 +237,7 @@ async function fetchImages(url_func, n, on_fetch_call) {
       const context = canvas.getContext('2d')
 
       let i = 0
-      const images = await fetchImages(next_url, illust_data.pageCount, (_, data, resolve) => {
+      const images = await fetchImages([...urlsGen(url, is_image_included)], (_, data, resolve) => {
         const object_url = URL.createObjectURL(data)
         loadImage(object_url).then(image => {
           if (canvas.width < image.width)
